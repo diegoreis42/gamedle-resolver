@@ -1,0 +1,1 @@
+# gamedle-resolver
