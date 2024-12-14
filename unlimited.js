@@ -1,6 +1,4 @@
 const puppeteer = require('puppeteer');
-const fs = require('fs');
-const path = require('path');
 
 (async () => {
     try {
@@ -12,22 +10,6 @@ const path = require('path');
         const page = await browser.newPage();
 
         let isDataFetched = false;
-
-        const saveFilePath = path.join(__dirname, 'shuffled_order.json');
-        let existingShuffledOrder = null;
-
-        // Ensure the JSON file exists or initialize with an empty array
-        if (!fs.existsSync(saveFilePath)) {
-            console.log('JSON file does not exist. Creating a new one.');
-            fs.writeFileSync(saveFilePath, JSON.stringify([], null, 2));
-        }
-
-        try {
-            existingShuffledOrder = JSON.parse(fs.readFileSync(saveFilePath, 'utf8'));
-        } catch (readError) {
-            console.error('Error reading the shuffled order file. Initializing with an empty array.', readError);
-            existingShuffledOrder = [];
-        }
 
         const adHosts = ['googlesyndication.com', 'adservice.google.com', 'doubleclick.net'];
 
@@ -48,12 +30,9 @@ const path = require('path');
                     const json = await response.json();
                     const shuffledOrderData = json.legendBoardAC.shuffledorder;
 
-                    fs.writeFileSync(saveFilePath, JSON.stringify(shuffledOrderData, null, 2));
-                    console.log('Shuffled Order Updated');
-                    existingShuffledOrder = shuffledOrderData;
                     isDataFetched = true;
 
-                    await runScript();
+                    await runScript(shuffledOrderData);
                 }
             } catch (jsonError) {
                 console.error('Error getting JSON:', jsonError);
@@ -79,8 +58,7 @@ const path = require('path');
             return gamelistData && gamelistData.length > 0;
         }, { timeout: 10000 });
 
-        const runScript = async () => {
-            const ids = JSON.parse(fs.readFileSync(saveFilePath, 'utf8'));
+        const runScript = async (ids) => {
 
             const gamelistData = await page.evaluate(() => {
                 return JSON.parse(localStorage.getItem('__gamelist__data'));
@@ -97,16 +75,30 @@ const path = require('path');
 
                 console.log('Selected game:', game.label, "id: ", id);
 
-                // Type game name with delays
                 await page.focus('#searchBox');
                 await page.keyboard.type('                            ' + game.label, { delay: 50 });
 
-                // Select and confirm the game
-                await page.keyboard.press('ArrowDown');
-                await page.keyboard.press('Enter');
-                await page.keyboard.press('Enter');
+                await page.waitForSelector('.tt-suggestion', { timeout: 5000 });
 
-                // Wait for the page to load after clicking next
+                const suggestions = await page.$$eval('.tt-suggestion', (elements) => {
+                    return elements.map(element => element.textContent.trim());
+                });
+
+                const suggestionIndex = suggestions.indexOf(game.label);
+
+                if (suggestionIndex !== -1) {
+                    await page.keyboard.press('ArrowDown', { delay: 100 });
+                    console.log("Suggestion index: ", suggestionIndex);
+                    for (let i = 0; i < suggestionIndex; i++) {
+                        await page.keyboard.press('ArrowDown');
+                        console.log("Arrow moved down");
+                    }
+                    await page.keyboard.press('Enter');
+                    await page.keyboard.press('Enter');
+                } else {
+                    console.error('Suggestion not found for game:', game.label);
+                }
+
                 await page.waitForSelector('#next', { visible: true });
                 await page.click('#next');
             }
